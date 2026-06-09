@@ -81,14 +81,26 @@ class NodeSqliteAdapter implements SqliteDatabase {
 
   pragma(str: string, options?: { simple?: boolean }): any {
     const trimmed = str.trim();
+    // Guard against SQL injection: reject semicolons, SQL comments (--),
+    // block comments (/* */), and empty input.
+    if (/;|--|\*\/|\/\*/.test(trimmed) || /^\s*$/.test(trimmed)) {
+      throw new Error(`Unsafe pragma string rejected: ${trimmed}`);
+    }
     // Write pragma ("key = value"): node:sqlite is real SQLite, so every pragma
     // (WAL, mmap, synchronous, …) applies as-is.
     if (trimmed.includes('=')) {
+      const [key] = trimmed.split('=');
+      if (!/^[a-zA-Z_]+$/.test(key!.trim())) {
+        throw new Error(`Invalid pragma name: ${key!.trim()}`);
+      }
       this._db.exec(`PRAGMA ${trimmed}`);
       return;
     }
     // Read pragma. Default: the row object (e.g. { journal_mode: 'wal' }).
     // `{ simple: true }` returns just the single column value, like better-sqlite3.
+    if (!/^[a-zA-Z_]+$/.test(trimmed)) {
+      throw new Error(`Invalid pragma name: ${trimmed}`);
+    }
     const row = this._db.prepare(`PRAGMA ${trimmed}`).get();
     if (options?.simple) {
       return row && typeof row === 'object' ? Object.values(row)[0] : row;
